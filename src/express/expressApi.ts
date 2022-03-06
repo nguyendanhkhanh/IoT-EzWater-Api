@@ -38,7 +38,6 @@ app.post('/api/publish', async (req, res) => {
     const jsonBody = req.body
     client.publish(jsonBody.topic, jsonBody.status);
     console.log('done');
-
     res.send("success - 200");
     return;
 })
