@@ -32,7 +32,7 @@ client.on('connect', async () => {
         });
         client.subscribe(['APPr/notification/' + obj.mac_address], () => {
             console.log(`Subscribe to topic APPr/notification/` + obj.mac_address)
-        });
+        }); 
         client.subscribe(['ESPs/status/' + obj.mac_address], () => {
             console.log(`Subscribe to topic ESPs/status/` + obj.mac_address)
         });
@@ -60,11 +60,10 @@ async function status(payload: string, mac: string) {
 
     const res = await firestore.collection("EspRelayStatus").add({
         relay_id: objPlayload.relay_id,
-        time_on: objPlayload.time_on,
-        time_off: objPlayload.time_off,
+        water_time: objPlayload.water_time/1000,
         water_amount: objPlayload.water_amount,
-        mac_address: mac,
-        timestamp: moment().format('YYYY-DD-MMTHH:mm:ss')
+        mac_address: mac,  
+        timestamp: moment().format('YYYY-MM-DDTHH:mm:ss')
     });
 
     console.log("ESPs/status/" + mac + " add done id doc:" + res.id);
@@ -75,6 +74,7 @@ async function environment(payload: string, mac: string) {
 
     const res = await firestore.collection("EspEnvironment").add({
         humidity: objPlayload.humidity,
+        relay_id: objPlayload.relay_id,
         mac_address: mac,
         soil_humidity: objPlayload.soil_humidity,
         temperature: objPlayload.temperature
@@ -87,12 +87,15 @@ async function environment(payload: string, mac: string) {
 
     snapshot.forEach((snap) => {
         const obj = JSON.parse(JSON.stringify(snap.data()));
-        if (obj.mac_address == mac && obj.humidity_warning < objPlayload.humidity && obj.auto_on_off == true) {
+        console.log(obj);
+        if (obj.mac_address == mac && obj.relay_id == objPlayload.relay_id && obj.humidity_warning > objPlayload.soil_humidity && obj.auto_on_off == true) {
             const msg = {
-                Timestamp: moment().format('YYYY-DD-MMTHH:mm:ss'),
-                Message: "Relay " + obj.relay_name + " đang có độ ẩm là " + obj.humidity_warning + ". Vui lòng bơm nước!"
+                Timestamp: moment().format('YYYY-MM-DDTHH:mm:ss'),
+                Message: "Relay " + obj.relay_name + " đang có độ ẩm là " + objPlayload.humidity + ". Vui lòng bơm nước!"
             }
             client.publish("APPr/notification/" + mac, JSON.stringify(msg));
+            console.log('notify ');
+
         }
     })
 }

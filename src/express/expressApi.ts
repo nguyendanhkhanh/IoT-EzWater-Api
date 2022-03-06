@@ -1,6 +1,8 @@
 import express from 'express';
 import moment from 'moment';
 import { firestore } from '../firebase/clientApp';
+import { getInitRelay } from '../ultil/EspRelay';
+import { client } from '../mqtt/clientMqtt'
 
 const app = express();
 const PORT = 8000;
@@ -10,29 +12,77 @@ app.use(express.urlencoded());
 
 app.get('/', (req, res) => res.send('IOT HUST'));
 
+app.post('/api/publish', async (req, res) => {
+    const jsonBody = req.body
+    client.publish(jsonBody.topic, jsonBody.status);
+    console.log('done');
+    
+    res.send("success - 200");
+    return;
+})
+
 app.post('/api/device', async (req, res) => {
 
     const jsonBody = req.body;
 
-    const mac = await firestore.collection("MacAddress").add({
-        mac_address: jsonBody.mac_address
+    if (jsonBody.user_email == undefined) {
+        res.send("bad request – error 400");
+        return;
+    }
+
+    const macAddressCollectionSnapshot = firestore.collection("MacAddress");
+
+    const listDevices: any[] = jsonBody.devices
+    for (let i = 0; i < listDevices.length; i++) {
+        if (listDevices[i].id === '') {
+            await firestore.collection("MacAddress").add({
+                mac_address: listDevices[i].mac_address,
+                user_email: jsonBody.user_email,
+                mac_address_name: listDevices[i].mac_address_name ? listDevices[i].mac_address_name : `Địa chỉ MAC: ${listDevices[i].mac_address}`
+            })
+            const initListRelay = getInitRelay(listDevices[i].mac_address)
+            initListRelay.forEach(item => firestore.collection("EspRelay").add(item))
+        }
+        else {
+            await firestore.collection("MacAddress").doc(listDevices[i].id).update({
+                mac_address: listDevices[i].mac_address,
+                mac_address_name: listDevices[i].mac_address_name ? listDevices[i].mac_address_name : `Địa chỉ MAC: ${listDevices[i].mac_address}`
+            })
+        }
+    }
+
+    const snapshotMacAddress = await macAddressCollectionSnapshot.where("user_email", "==", jsonBody.user_email).get();
+    var jsonRes: any[] = [];
+    snapshotMacAddress.forEach((snap) => {
+        const obj = JSON.parse(JSON.stringify(snap.data()));
+        jsonRes.push(obj);
     })
 
-    await firestore.collection("User").add({
-        user_id: mac.id,
-        mac_address: jsonBody.mac_address,
-        user_name: jsonBody.user_name
-    })
-
-    res.json({
-        user_id: mac.id
-    });
+    res.json(jsonRes);
 
 });
 
 app.listen(PORT, () => {
     console.log(`⚡️[server]: Server is running at localhost:${PORT}`);
 });
+
+app.post('/api/mac-address', async (req, res) => {
+    const jsonBody = req.body
+
+    const macAddressCollectionSnapshot = firestore.collection("MacAddress");
+
+    const snapshotMacAddress = await macAddressCollectionSnapshot.where("user_email", "==", jsonBody.user_email).get();
+
+    var jsonRes: any[] = [];
+    snapshotMacAddress.forEach((snap) => {
+        const obj = JSON.parse(JSON.stringify(snap.data()));
+        obj.id = snap.id
+        jsonRes.push(obj);
+    })
+
+    res.json(jsonRes);
+
+})
 
 app.post('/api/statistic', async (req, res) => {
     const jsonBody = req.body;
@@ -52,39 +102,29 @@ app.post('/api/statistic', async (req, res) => {
 
     const espRelayStatusCollectionSnapshot = firestore.collection("EspRelayStatus");
 
-    const snapshot = await espRelayStatusCollectionSnapshot.get();
+    const snapshot = await espRelayStatusCollectionSnapshot.where('mac_address', '==', jsonBody.mac_address).get();
 
-    let totalAmount = 0;
-    let totalTime = 0;
-    let totalAmountCount = 0;
-    let totalTimeCount = 0;
+    var jsonRes: any[] = [];
 
+    
     snapshot.forEach((snap) => {
         const obj = JSON.parse(JSON.stringify(snap.data()));
-        const time = moment(obj.timestamp, "YYYY-DD-MMTHH:mm:ss")
-        const timeFrom = moment(jsonBody.time_from, "YYYY-DD-MMTHH:mm:ss")
-        const timeTo = moment(jsonBody.time_to, "YYYY-DD-MMTHH:mm:ss")
-
-        if (obj.relay_id == jsonBody.relay_id && mac == jsonBody.mac_address && time.isBetween(timeFrom, timeTo)) {
-            totalAmount += obj.water_amount;
-            totalAmountCount++;
-            var espTimeOn = moment(obj.time_on, "YYYY-DD-MMTHH:mm:ss");
-            var espTimeOff = moment(obj.time_off, "YYYY-DD-MMTHH:mm:ss");
-            var duration = moment.duration(espTimeOff.diff(espTimeOn));
-            var second = duration.asSeconds();
-            totalTime += second;
-            totalTimeCount++;
+        const time = moment(obj.timestamp, "YYYY-MM-DDTHH:mm:ss")
+        const timeFrom = moment(jsonBody.time_from, "YYYY-MM-DDTHH:mm:ss")
+        const timeTo = moment(jsonBody.time_to, "YYYY-MM-DDTHH:mm:ss")
+        console.log(time, timeFrom, timeTo);
+        
+        if (obj.relay_id == jsonBody.relay_id && time.isBetween(timeFrom, timeTo)) {
+            jsonRes.push(obj)
         }
     })
 
-    res.json({
-        relay_id: jsonBody.relay_id,
-        relay_name: relayName,
-        water_time: totalTime / totalTimeCount,
-        water_amount: totalAmount / totalAmountCount,
-        timestamp: moment().format('YYYY-DD-MMTHH:mm:ss')
-    })
-
+    console.log(jsonRes)
+    if (jsonRes.length == 0) {
+        res.send("null");
+    } else {
+        res.json(jsonRes);
+    }
 });
 
 export { app }
