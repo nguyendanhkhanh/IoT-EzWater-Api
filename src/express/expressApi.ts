@@ -34,35 +34,6 @@ app.post('/api/save-token', async (req, res) => {
     }
 });
 
-// one route for delete push token when logout
-
-app.get('/notification', async (req, res) => {
-    // you should change get to post and send token through json body
-    // const token = req.body
-
-    const token = 'dX0qDZARRxu_hCkeHmhcVy:APA91bGJDhaIGzOW6cMcshvvumnIq0DKypGF2mckT89qJ7ul-vNIy0Nd2oSt7WK3LGpyfe6FNTnfkS1e0UA2Hz3ThMfzIttgj8frS9mPxx0P3IAr8tocNfKgGUtmFX3xz44QnNh-WCHr';
-    try {
-        await admin.messaging().send({
-            token,
-            android: {
-                notification: {
-                    title: 'Title message',
-                    body: 'Body message',
-                    sound: 'default',
-                    priority: 'high',
-                    imageUrl: 'https://yt3.ggpht.com/ib9zhhB7MwMytqN_xU2WhkQqSnNw1MyRZNeRqC2glu00RD3Q2myrMUd0N4fMfFnO3WcBzg10wQ=s900-c-k-c0x00ffffff-no-rj',
-                },
-            },
-        });
-
-        res.json({ message: 'Send notification success' });
-    } catch (error) {
-        if (error instanceof Error) {
-            res.status(400).json({ message: error.message });
-        }
-    }
-});
-
 app.post('/api/publish', async (req, res) => {
     const jsonBody = req.body
     client.publish(jsonBody.topic, jsonBody.status);
