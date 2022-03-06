@@ -1,5 +1,6 @@
 import mqtt from 'mqtt';
 import { firestore } from '../firebase/clientApp';
+import admin from 'firebase-admin';
 import moment from 'moment';
 
 const host = 'driver.cloudmqtt.com';
@@ -33,7 +34,7 @@ client.on('connect', async () => {
         client.subscribe(['APPr/notification/' + obj.mac_address], () => {
             console.log(`Subscribe to topic APPr/notification/` + obj.mac_address)
         });
-        client.subscribe(['ESPs/status/' + obj.mac_address], () => {
+        client.subscribe(['ESPs/relay/' + obj.mac_address], () => {
             console.log(`Subscribe to topic ESPs/status/` + obj.mac_address)
         });
     })
@@ -53,7 +54,7 @@ client.on('message', (topic, payload) => {
     if (iTopic == 'ESPs/status') {
         status(payload.toString(), topicArr[2]);
     }
-    if (iTopic == 'ESPs/RL') {
+    if (iTopic == 'ESPs/relay') {
         warning(payload.toString(), topicArr[2])
     }
 })
@@ -63,21 +64,72 @@ async function warning(payload: string, mac: string) {
 
     const snapshot = await firestore.collection("EspRelay").where('mac_address', '==', mac).get()
 
-    snapshot.forEach((snap) => {
+    snapshot.forEach(async (snap) => {
         const obj = JSON.parse(JSON.stringify(snap.data()));
-        console.log(obj);
         if (obj.relay_id == objPlayload.relay_id && obj.humidity_warning > objPlayload.soil_humidity) {
             const msg = {
                 Timestamp: moment().format('YYYY-MM-DDTHH:mm:ss'),
-                Message: "Relay " + obj.relay_name + " đang có độ ẩm là " + objPlayload.humidity + ". Vui lòng bơm nước!"
+                Message: "Relay " + obj.relay_name + " đang có độ ẩm là " + objPlayload.soil_humidity + ". Vui lòng bơm nước!"
             }
             client.publish("APPr/notification/" + mac, JSON.stringify(msg));
 
+            const snapshotMacAddress = await firestore.collection("MacAddress").where("mac_address", "==", mac).get();
+
+            const snapshotUser: any[] = []
+
+            snapshotMacAddress.forEach(async snapMac => {
+                const objMac = JSON.parse(JSON.stringify(snapMac.data()))
+
+                const user = await firestore.collection("User").where("user_email", "==", objMac.user_email).get();
+                user.forEach(item => snapshotUser.push(item))
+                
+                if (obj.auto_on_off) {
+                    snapshotUser.forEach(snapUser => {
+                        const snapUserObj: any = JSON.parse(JSON.stringify(snapUser.data()));
+                        if (snapUserObj.device_token !== '') {
+                            admin.messaging().send({
+                                token: snapUserObj.device_token,
+                                android: {
+                                    notification: {
+                                        title: 'Thông báo',
+                                        body: "Đã bơm " + obj.relay_name + ", thời gian bơm: " + obj.water_time + "giây!",
+                                        sound: 'default',
+                                        priority: 'high',
+                                        imageUrl: 'https://cdn-icons.flaticon.com/png/512/3511/premium/3511683.png?token=exp=1646592949~hmac=d197998afe0882703694d39429fb4ed7'
+                                    },
+                                },
+                            });
+                            console.log('send');
+                        }
+                    })
+                }
+                else {
+                    snapshotUser.forEach(snapUser => {
+                        const snapUserObj: any = JSON.parse(JSON.stringify(snapUser.data()));
+                        if (snapUserObj.device_token !== '') {
+                            admin.messaging().send({
+                                token: snapUserObj.device_token,
+                                android: {
+                                    notification: {
+                                        title: 'Cảnh báo',
+                                        body: "Relay " + obj.relay_name + " " + objMac.mac_address_name + " đang có độ ẩm là " + objPlayload.soil_humidity + ". Vui lòng bơm nước!",
+                                        sound: 'default',
+                                        priority: 'high',
+                                        imageUrl: 'https://cdn-icons.flaticon.com/png/512/3511/premium/3511683.png?token=exp=1646592949~hmac=d197998afe0882703694d39429fb4ed7'
+                                    },
+                                },
+                            });
+                        }
+                        console.log('keytest', 123);
+                    })
+                    
+                }
+            })
+
             if (obj.auto_on_off == true) {
                 client.publish(`ESPn/RL1${mac}`, "1");
-                setTimeout(() => client.publish(`ESPn/RL1${mac}`, "0"), Number(objPlayload.water_time) * 1000)
+                setTimeout(() => client.publish(`ESPn/RL1${mac}`, "0"), Number(obj.water_time) * 1000)
             }
-
         }
     })
 }

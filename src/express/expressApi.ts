@@ -2,7 +2,9 @@ import express from 'express';
 import moment from 'moment';
 import { firestore } from '../firebase/clientApp';
 import { getInitRelay } from '../ultil/EspRelay';
-import { client } from '../mqtt/clientMqtt'
+import { client } from '../mqtt/clientMqtt';
+import admin from 'firebase-admin';
+
 
 const app = express();
 const PORT = 8000;
@@ -12,11 +14,60 @@ app.use(express.urlencoded());
 
 app.get('/', (req, res) => res.send('IOT HUST'));
 
+app.post('/api/save-token', async (req, res) => {
+    const { email, device_token } = req.body;
+
+    try {
+        const snapshotUser = await firestore.collection("User").where("user_email", "==", email).get();
+        snapshotUser.forEach((snap) => {
+            firestore.collection("User").doc(snap.id).update({
+                device_token: device_token
+            })
+        })
+        res.json({ message: 'Save device token successfully!' });
+        console.log({ message: 'Save device token successfully!' });
+        
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).json({ message: error.message });
+        }
+    }
+});
+
+// one route for delete push token when logout
+
+app.get('/notification', async (req, res) => {
+    // you should change get to post and send token through json body
+    // const token = req.body
+
+    const token = 'dX0qDZARRxu_hCkeHmhcVy:APA91bGJDhaIGzOW6cMcshvvumnIq0DKypGF2mckT89qJ7ul-vNIy0Nd2oSt7WK3LGpyfe6FNTnfkS1e0UA2Hz3ThMfzIttgj8frS9mPxx0P3IAr8tocNfKgGUtmFX3xz44QnNh-WCHr';
+    try {
+        await admin.messaging().send({
+            token,
+            android: {
+                notification: {
+                    title: 'Title message',
+                    body: 'Body message',
+                    sound: 'default',
+                    priority: 'high',
+                    imageUrl: 'https://yt3.ggpht.com/ib9zhhB7MwMytqN_xU2WhkQqSnNw1MyRZNeRqC2glu00RD3Q2myrMUd0N4fMfFnO3WcBzg10wQ=s900-c-k-c0x00ffffff-no-rj',
+                },
+            },
+        });
+
+        res.json({ message: 'Send notification success' });
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).json({ message: error.message });
+        }
+    }
+});
+
 app.post('/api/publish', async (req, res) => {
     const jsonBody = req.body
     client.publish(jsonBody.topic, jsonBody.status);
     console.log('done');
-    
+
     res.send("success - 200");
     return;
 })
@@ -106,14 +157,14 @@ app.post('/api/statistic', async (req, res) => {
 
     var jsonRes: any[] = [];
 
-    
+
     snapshot.forEach((snap) => {
         const obj = JSON.parse(JSON.stringify(snap.data()));
         const time = moment(obj.timestamp, "YYYY-MM-DDTHH:mm:ss")
         const timeFrom = moment(jsonBody.time_from, "YYYY-MM-DDTHH:mm:ss")
         const timeTo = moment(jsonBody.time_to, "YYYY-MM-DDTHH:mm:ss")
         console.log(time, timeFrom, timeTo);
-        
+
         if (obj.relay_id == jsonBody.relay_id && time.isBetween(timeFrom, timeTo)) {
             jsonRes.push(obj)
         }
